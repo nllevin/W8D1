@@ -63,13 +63,15 @@ INSERT INTO
   questions (title, body, user_id)
 VALUES
   ('Silly Question', 'I am asking a silly question', 1),
-  ('Silly Question 2', 'I am asking a silly question, but mine has more detail', 2);
+  ('Silly Question 2', 'I am asking a silly question, but mine has more detail', 2),
+  ('Unliked Qestion', 'Why does nobody like me?', 1);
 
 INSERT INTO
   question_follows (user_id, question_id)
 VALUES
   (1, 2),
-  (2, 1);
+  (2, 1),
+  (2, 2);
 
 INSERT INTO
   replies (question_id, parent_id, user_id, body)

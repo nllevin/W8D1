@@ -217,3 +217,6 @@ Then write tests for your save and update methods. Think of a way to reset the d
 Bonus II
 Go through all of SQLZoo again.
 
+
+
+Class Questions
