@@ -11,25 +11,76 @@ class QuestionsDatabase < SQLite3::Database
   end
 end
 
-class User
-  attr_accessor :id, :fname, :lname
-
-  def self.all
-    data = QuestionsDatabase.instance.execute("SELECT * FROM users")
-    data.map { |datum| User.new(datum) }
-  end
-  
+class SuperQ
   def self.find_by_id(id)
+    table_name = self.table_name
     found_info = QuestionsDatabase.instance.execute(<<-SQL, id)
       SELECT
         *
       FROM
-        users
+        #{table_name}
       WHERE
-        users.id = ?
+        #{table_name}.id = ?
     SQL
-    User.new(found_info.first)
+    self.new(found_info.first)
   end
+
+  def self.all
+    data = QuestionsDatabase.instance.execute("SELECT * FROM #{self.table_name}")
+    data.map { |datum| self.new(datum) }
+  end
+
+  def self.to_s
+    raise "should be overridden by child classes"
+  end
+
+  def self.where(options)
+    vals = options.values
+    where_str = options.keys.map{ |key| "#{key} = ?"}.join(" AND ")
+
+    found_data = QuestionsDatabase.instance.execute(<<-SQL, *vals)
+      SELECT
+        *
+      FROM
+        #{self.table_name}
+      WHERE
+        #{where_str}
+    SQL
+    found_data.map { |datum| self.new(datum) }
+  end
+
+  def save
+    table_name = self.class.table_name
+    vars = self.instance_variables
+
+    if self.id
+      set_str = vars.drop(1).map {|var| "#{var.to_s[2..-1]} = #{self.instance_variable_get(var)}"}.join(", ")
+
+      QuestionsDatabase.instance.execute(<<-SQL, self.id)
+        UPDATE
+          #{table_name}
+        SET
+          #{set_str}
+        WHERE
+          id = ?
+      SQL
+    else
+      insert_str = vars.map {|var| "#{var.to_s[2..-1]}"}.join(", ")
+      values_str = vars.map {|var| "#{self.instance_variable_get(var)}"}.join(", ")
+      QuestionsDatabase.instance.execute(<<-SQL)
+        INSERT INTO
+          #{table_name} (#{insert_str})
+        VALUES
+          (#{values_str})
+      SQL
+      self.id = QuestionsDatabase.instance.last_insert_row_id
+    end
+  end
+end
+
+class User < SuperQ
+  attr_accessor :id, :fname, :lname
+
   
   def self.find_by_name(fname, lname)
     found_info = QuestionsDatabase.instance.execute(<<-SQL, fname, lname)
@@ -43,32 +94,17 @@ class User
     User.new(found_info.first)
   end
 
+  def self.table_name
+    "users"
+  end
+
   def initialize(options)
     @id = options['id']
     @fname = options['fname']
     @lname = options['lname']
   end
 
-  def save
-    if self.id
-      QuestionsDatabase.instance.execute(<<-SQL, self.fname, self.lname, self.id)
-        UPDATE
-          users
-        SET
-          fname = ?, lname = ?
-        WHERE
-          id = ?
-      SQL
-    else
-      QuestionsDatabase.instance.execute(<<-SQL, self.fname, self.lname)
-        INSERT INTO
-          users (fname, lname)
-        VALUES
-          (?, ?)
-      SQL
-      self.id = QuestionsDatabase.instance.last_insert_row_id
-    end
-  end
+  
 
   def authored_questions
     Question.find_by_author_id(self.id)
@@ -103,25 +139,12 @@ class User
   end
 end
 
-class Question
+class Question < SuperQ
   attr_accessor :id, :title, :body, :user_id
 
-  def self.all
-    data = QuestionsDatabase.instance.execute("SELECT * FROM questions")
-    data.map { |datum| Question.new(datum) }
-  end
 
-  def self.find_by_id(id)
-    found_info = QuestionsDatabase.instance.execute(<<-SQL, id)
-      SELECT
-        *
-      FROM
-        questions
-      WHERE
-        questions.id = ?
-    SQL
-
-    Question.new(found_info.first)
+  def self.table_name
+    "questions"
   end
 
   def self.find_by_author_id(author_id)
@@ -171,48 +194,12 @@ class Question
     QuestionLike.num_likes_for_question_id(self.id)
   end
 
-  def save
-    if self.id
-      QuestionsDatabase.instance.execute(<<-SQL, self.title, self.body, self.user_id, self.id)
-        UPDATE
-          questions
-        SET
-         title = ?, body = ?, user_id = ?
-        WHERE
-          id = ?
-      SQL
-    else
-      QuestionsDatabase.instance.execute(<<-SQL, self.title, self.body, self.user_id)
-        INSERT INTO
-          questions (title, body, user_id)
-        VALUES
-          (?, ?, ?)
-      SQL
-      self.id = QuestionsDatabase.instance.last_insert_row_id
-    end
-  end
+  
 end
 
-class QuestionFollow
+class QuestionFollow < SuperQ
   attr_accessor :id, :user_id, :question_id
 
-  def self.all
-    data = QuestionsDatabase.instance.execute("SELECT * FROM question_follows")
-    data.map { |datum| QuestionFollow.new(datum) }
-  end
-
-  def self.find_by_id(id)
-    found_info = QuestionsDatabase.instance.execute(<<-SQL, id)
-      SELECT
-        *
-      FROM
-        question_follows
-      WHERE
-        question_follows.id = ?
-    SQL
-
-    QuestionFollow.new(found_info.first)
-  end
 
   def self.followers_for_question_id(question_id)
     user_data = QuestionsDatabase.instance.execute(<<-SQL, question_id)
@@ -261,6 +248,10 @@ class QuestionFollow
     questions.map { |question_info| Question.new(question_info) }
   end
 
+  def self.table_name
+    "question_follows"
+  end
+
   def initialize(options)
     @id = options['id']
     @user_id = options['user_id']
@@ -268,13 +259,8 @@ class QuestionFollow
   end
 end
 
-class Reply
+class Reply < SuperQ
   attr_accessor :id, :question_id, :parent_id, :user_id, :body
-
-  def self.all
-    data = QuestionsDatabase.instance.execute("SELECT * FROM replies")
-    data.map { |datum| Reply.new(datum) }
-  end
 
   def self.find_by_user_id(user_id)
     found_data = QuestionsDatabase.instance.execute(<<-SQL, user_id)
@@ -300,17 +286,8 @@ class Reply
     found_data.map { |datum| Reply.new(datum) }
   end
 
-  def self.find_by_id(id)
-    found_info = QuestionsDatabase.instance.execute(<<-SQL, id)
-      SELECT
-        *
-      FROM
-        replies
-      WHERE
-        replies.id = ?
-    SQL
-
-    Reply.new(found_info.first)
+  def self.table_name
+    "replies"
   end
 
   def initialize(options)
@@ -345,50 +322,11 @@ class Reply
     found_data.map { |datum| Reply.new(datum) }
   end
 
-  def save
-    if self.id
-      QuestionsDatabase.instance.execute(<<-SQL, self.question_id, self.parent_id, self.user_id, self.body, self.id)
-        UPDATE
-          replies
-        SET
-          question_id = ?, parent_id = ?, user_id = ?, body = ?
-        WHERE
-          id = ?
-      SQL
-    else
-      QuestionsDatabase.instance.execute(<<-SQL, self.question_id, self.parent_id, self.user_id, self.body)
-        INSERT INTO
-          replies (question_id, parent_id, user_id, body)
-        VALUES
-          (?, ?, ?, ?)
-      SQL
-      self.id = QuestionsDatabase.instance.last_insert_row_id
-    end
-  end
-  
 end
 
 
-class QuestionLike
+class QuestionLike < SuperQ
   attr_accessor :id, :user_id, :question_id
-
-  def self.all
-    data = QuestionsDatabase.instance.execute("SELECT * FROM question_likes")
-    data.map { |datum| QuestionLike.new(datum) }
-  end
-
-  def self.find_by_id(id)
-    found_info = QuestionsDatabase.instance.execute(<<-SQL, id)
-      SELECT
-        *
-      FROM
-        question_likes
-      WHERE
-        question_likes.id = ?
-    SQL
-
-    QuestionLike.new(found_info.first)
-  end
 
   def self.likers_for_question_id(question_id)
     data = QuestionsDatabase.instance.execute(<<-SQL, question_id)
@@ -450,9 +388,14 @@ class QuestionLike
     questions.map { |question_info| Question.new(question_info) }
   end
 
+  def self.table_name
+    "question_likes"
+  end
+
   def initialize(options)
     @id = options['id']
     @user_id = options['user_id']
     @question_id = options['question_id']
   end
+
 end
